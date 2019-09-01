@@ -9,9 +9,9 @@ print(os.getcwd())
 #-------------------------------------------------------------------------------
 #Globals:
 
-TICKERS = ["AAPL", "MSFT", "NVDA", "HPQ", "GOOGL", "INTC", "AMZN"]
-TO_PREDICT = ["NVDA"]
-FUTURE = 5    #close column will be shifted 5 days into future to produce labels
+TICKERS = ["AAPL", "MSFT", "NVDA"] #, "HPQ", "GOOGL", "INTC", "AMZN"]
+TO_PREDICT = "NVDA"
+FUTURE = 3    #close column will be shifted 5 days into future to produce labels
 SEQUENCE_LEN = 25
 
 
@@ -22,7 +22,13 @@ def pull_csv(tickers):
         data.to_csv(f"./tickers/{ticker}.csv")
 #pull_csv(TICKERS)
 
-def targets(future_period, sequence_length):
+def buy_or_sell(current, future):
+    if float(future) > float(current):
+        return 1
+    else:
+        return 0
+
+def make_targets():
     main_df = pd.DataFrame()
     csv_folder = "./tickers/"
     for csv in os.listdir(csv_folder):
@@ -41,7 +47,10 @@ def targets(future_period, sequence_length):
             main_df = df
         else:
             main_df = main_df.join(df)
+    main_df[f"Future_Close_{TO_PREDICT}"] = main_df[f"Adj_Close_{TO_PREDICT}"].shift(FUTURE)
+    main_df["Target"] = list(map(buy_or_sell, main_df[f"Adj_Close_{TO_PREDICT}"], main_df[f"Future_Close_{TO_PREDICT}"]))
+    return main_df.drop(f"Future_Close_{TO_PREDICT}",1)
+df = make_targets()
 
-    
-
-targets(3, 3)
+def train_validation_split():
+    pass
