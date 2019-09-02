@@ -6,6 +6,11 @@ import os
 from sklearn.preprocessing import StandardScaler
 from collections import deque
 import random
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, LSTM, BatchNormalization, GRU
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
+import time
 
 pd.options.mode.chained_assignment = None
 print(os.getcwd())
@@ -14,17 +19,19 @@ print(os.getcwd())
 #Globals:
 
 TICKERS = ["AAPL", "MSFT", "NVDA", "HPQ", "GOOGL", "INTC", "AMZN"]
-TO_PREDICT = "NVDA"
-FUTURE = 3    #close column will be shifted 5 days into future to produce labels
-SEQUENCE_LEN = 10
+TO_PREDICT = "NVDA" # Ticker price to be predicted
+FUTURE = 3          # Adj Close column will be shifted 5 days into future to produce labels
+SEQUENCE_LEN = 10   # Length of one "sequence feature" - (10 x (n_tickers(7) * n_columns(2)))
+EPOCHS = 10         # Keras Epochs
+BATCH = 32          # Sequence Features in a keras batch
 
 #-------------------------------------------------------------------------------
 def pull_csv(tickers):
     ### Pull tickers from QUANDL
     for ticker in TICKERS:
-        data = quandl.get(f"WIKI/{ticker}", start_date="2005-3-27", end_date="2018-3-27")
+        data = quandl.get(f"WIKI/{ticker}", start_date="1998-3-27", end_date="2018-3-27")
         data.to_csv(f"./tickers/{ticker}.csv")
-#pull_csv(TICKERS)
+pull_csv(TICKERS)
 
 def buy_or_sell(current, future):
     ### function to map to feature column using map()
@@ -41,9 +48,11 @@ def make_targets():
         ticker_path = os.path.join(csv_folder, csv)
         df = pd.read_csv(ticker_path)
         df.set_index("Date", inplace=True)
-        df = df[["Adj. Close","Adj. Volume"]]
+        df = df[["Close", "Volume", "Adj. Close","Adj. Volume"]]
         ticker_name = csv.split(".")[0]
-        df.rename(columns={"Adj. Close" : f"Adj_Close_{ticker_name}",
+        df.rename(columns={"Close" : f"Close_{ticker_name}",
+                           "Volume" : f"Volume_{ticker_name}",
+                           "Adj. Close" : f"Adj_Close_{ticker_name}",
                            "Adj. Volume" : f"Adj_Volume_{ticker_name}"}, inplace=True)
         if main_df.empty:
             main_df = df
@@ -110,3 +119,32 @@ def balanced_sequential_data(df):
     return np.array(X), np.array(y)
 X_train, y_train = balanced_sequential_data(normalisation(main_df))
 X_val, y_val = balanced_sequential_data(normalisation(val_df))
+#-------------------------------------------------------------------------------
+
+model_name = f"{TO_PREDICT}-{SEQUENCE_LEN}-SEQ-{FUTURE}-DAYS-{int(time.time())}"
+input = X_train.shape[1:] # The shape of one feature (10 x 14) (where 10 is the SEQUENCE_LEN and 14 is n_columns(2) * n_tickers(7))
+### Layer 1:
+model = Sequential()
+model.add(GRU(128, input_shape=(input), return_sequences=True, activation="tanh"))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+### Layer 2:
+model.add(GRU(128, input_shape=(input), return_sequences=True, activation="tanh"))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+### Layer 3:
+model.add(GRU(128, input_shape=(input), activation="tanh"))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+### Layer 4:
+model.add(Dense(32, activation="relu"))
+model.add(Dropout(0.2))
+### Output:
+model.add(Dense(2, activation="softmax"))
+opt = tf.keras.optimizers.Adam(lr=0.001, decay=1e-6)
+model.compile(loss="sparse_categorical_crossentropy",
+               optimizer=opt,
+               metrics=["accuracy"])
+tensorboard = TensorBoard(log_dir=f".\logs\\{model_name}")
+model.fit(X_train, y_train,batch_size=BATCH,epochs=EPOCHS,
+                    validation_data=(X_val, y_val),callbacks=[tensorboard])
