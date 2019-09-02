@@ -3,6 +3,10 @@ import quandl
 import pandas as pd
 import numpy as np
 import os
+from sklearn.preprocessing import StandardScaler
+from collections import deque
+pd.options.mode.chained_assignment = None
+
 
 print(os.getcwd())
 
@@ -28,6 +32,7 @@ def buy_or_sell(current, future):
     else:
         return 0
 
+
 def make_targets():
     main_df = pd.DataFrame()
     csv_folder = "./tickers/"
@@ -35,12 +40,9 @@ def make_targets():
         ticker_path = os.path.join(csv_folder, csv)
         df = pd.read_csv(ticker_path)
         df.set_index("Date", inplace=True)
-        df = df[["Close", "Volume","Ex-Dividend", "Adj. Close","Adj. Volume"]]
+        df = df[["Adj. Close","Adj. Volume"]]
         ticker_name = csv.split(".")[0]
-        df.rename(columns={"Close" : f"Close_{ticker_name}",
-                           "Volume" : f"Volume_{ticker_name}",
-                           "Ex-Dividend" : f"Div_{ticker_name}",
-                           "Adj. Close" : f"Adj_Close_{ticker_name}",
+        df.rename(columns={"Adj. Close" : f"Adj_Close_{ticker_name}",
                            "Adj. Volume" : f"Adj_Volume_{ticker_name}"}, inplace=True)
         if main_df.empty:
             main_df = df
@@ -56,12 +58,26 @@ def OOS_data(df, split_pct):
     df_index = df.index.values
     index_len = len(df_index)
     val_size = int(split_pct*index_len)
-
     cuttoff_index = df_index[-val_size]
-
     val_df = df[(df.index >= cuttoff_index)]
     main_df = df[(df.index < cuttoff_index)]
+    return main_df, val_df
 
-    print(len(val_df), len(main_df))
+main_df = OOS_data(df, 0.1)[0]
+val_df = OOS_data(df, 0.1)[1]
 
-OOS_data(df, 0.1)
+def normalisation(df):
+    #SS Normalises Data (Mean 0, var 1):
+    scaler = StandardScaler()
+    for col in df.columns:
+        if col != "Target":
+            df[col] = scaler.fit_transform(df[col].values.reshape(-1,1))
+            df.dropna(inplace=True)
+    return df
+normalisation(main_df)
+
+
+def sequences(df):
+    sequence_df = []
+
+    deque = deque(SEQUENCE_LEN)
