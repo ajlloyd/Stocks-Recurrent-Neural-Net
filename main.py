@@ -5,9 +5,9 @@ import numpy as np
 import os
 from sklearn.preprocessing import StandardScaler
 from collections import deque
+import random
+
 pd.options.mode.chained_assignment = None
-
-
 print(os.getcwd())
 
 #-------------------------------------------------------------------------------
@@ -18,22 +18,23 @@ TO_PREDICT = "NVDA"
 FUTURE = 3    #close column will be shifted 5 days into future to produce labels
 SEQUENCE_LEN = 10
 
-
 #-------------------------------------------------------------------------------
 def pull_csv(tickers):
+    ### Pull tickers from QUANDL
     for ticker in TICKERS:
         data = quandl.get(f"WIKI/{ticker}", start_date="2005-3-27", end_date="2018-3-27")
         data.to_csv(f"./tickers/{ticker}.csv")
 #pull_csv(TICKERS)
 
 def buy_or_sell(current, future):
+    ### function to map to feature column using map()
     if float(future) > float(current):
         return 1
     else:
         return 0
 
-
 def make_targets():
+    ### Produce target (label) column based on the future price (0 sell, 1 buy)
     main_df = pd.DataFrame()
     csv_folder = "./tickers/"
     for csv in os.listdir(csv_folder):
@@ -55,6 +56,7 @@ def make_targets():
 df = make_targets()
 
 def OOS_data(df, split_pct):
+    ### Split Data into test and val data
     df_index = df.index.values
     index_len = len(df_index)
     val_size = int(split_pct*index_len)
@@ -62,22 +64,49 @@ def OOS_data(df, split_pct):
     val_df = df[(df.index >= cuttoff_index)]
     main_df = df[(df.index < cuttoff_index)]
     return main_df, val_df
-
 main_df = OOS_data(df, 0.1)[0]
 val_df = OOS_data(df, 0.1)[1]
 
 def normalisation(df):
-    #SS Normalises Data (Mean 0, var 1):
+    ### StandardScaler Normalises Data (Mean 0, var 1):
     scaler = StandardScaler()
     for col in df.columns:
         if col != "Target":
             df[col] = scaler.fit_transform(df[col].values.reshape(-1,1))
             df.dropna(inplace=True)
     return df
-normalisation(main_df)
 
-
-def sequences(df):
-    sequence_df = []
-
-    deque = deque(SEQUENCE_LEN)
+def balanced_sequential_data(df):
+    ### Producing Sequential Data:
+    sequence_data = []
+    previous_days = deque(maxlen=SEQUENCE_LEN)
+    for row in df.values:
+        row_i = []
+        for value in row[:-1]:
+            row_i.append(value)
+        previous_days.append(row_i)
+        if len(previous_days) == SEQUENCE_LEN:
+            sequence_data.append([np.array(previous_days), int(row[-1])])
+    random.shuffle(sequence_data)
+    ### Producing Balanced Sequential Data:
+    buys = []
+    sells = []
+    for feature, label in sequence_data:
+        if label == 1:
+            buys.append([feature, label])
+        if label == 0:
+            sells.append([feature, label])
+    smaller = min(len(buys), len(sells))
+    buys = buys[:smaller]
+    sells = sells[:smaller]
+    balanced_data = buys + sells
+    random.shuffle(balanced_data)
+    ### Split Balanced Sequential Data into Features and Labels
+    X = []
+    y = []
+    for feature, label in balanced_data:
+        X.append(feature)
+        y.append(label)
+    return np.array(X), np.array(y)
+X_train, y_train = balanced_sequential_data(normalisation(main_df))
+X_val, y_val = balanced_sequential_data(normalisation(val_df))
